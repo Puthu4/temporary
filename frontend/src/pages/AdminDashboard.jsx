@@ -3,6 +3,7 @@ import "../styles/AdminDashboardUnique.css"; // unique CSS
 import ProfilePageAdmin from "./admin/ProfilePageAdmin";
 import NewChallenge from "./admin/NewChallenge";
 import ViewChallenges from "./admin/ViewChallenges";
+import BlockedUsersPage from "./admin/BlockedUsersPage.jsx";
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -15,6 +16,8 @@ export default function AdminDashboard() {
         return <ProfilePageAdmin />;
       case "view-challenges":
         return <ViewChallenges />;
+      case "blocked-users":
+        return <BlockedUsersPage />;
       default:
         return (
           <div className="adm-unique-welcome">
@@ -49,6 +52,12 @@ export default function AdminDashboard() {
           >
             📋 View Challenges
           </li>
+            <li
+              className={activeTab === "blocked-users" ? "adm-unique-active" : ""}
+              onClick={() => setActiveTab("blocked-users")}
+            >
+             🚫 Blocked Users
+            </li>
         </ul>
       </aside>
 

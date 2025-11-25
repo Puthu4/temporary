@@ -72,62 +72,45 @@ const userId = localStorage.getItem("userId");
     return canvas.toDataURL("image/jpeg", 0.7);
   }
 
-async function proctorCheck() {
-  try {
-    const frame = captureFrame();
-    if (!frame) return;
-
-    const res = await fetch("http://localhost:5000/api/proctor/check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId,
-        challengeId: id,
-        image: frame,
-      }),
-    });
-
-    const data = await res.json();
-    if (data.status === "ok") return;
-
-    // 🚨 Handle malpractice attempt
-    setMalpracticeCount((prev) => prev + 1);
-
-    const newCount = malpracticeCount + 1; // we manually calculate next value
-
-    if (newCount <= 2) {
-      setShowMalpracticeWarning(true); // show warning
-    } else {
-      // 🚨 THIRD VIOLATION → BLOCK USER
-      setIsBlocked(true);
-      setShowMalpracticeWarning(false);
-
-      // stop webcam
-      if (videoRef.current?.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
-      }
-
-      // ❗ Moved OUTSIDE setState callback → safe to await
-      await fetch("http://localhost:5000/api/block-user", {
+  // Send frame to backend for face match
+  async function proctorCheck() {
+    try {
+      const frame = captureFrame();
+      if (!frame) return;
+      const res = await fetch("http://localhost:5000/api/proctor/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: localStorage.getItem("email"),
-          reason: "Malpractice detected",
+          userId,
+          challengeId: id,
+          image: frame,
         }),
       });
+      const data = await res.json();
+      if (data.status === "ok") return; // all good
 
-      alert("⚠️ Malpractice detected — challenge access disabled.");
-    }
-
-    if (isBlocked) return;
-
-    console.warn("Facial malpractice detected:", data.status);
-  } catch (err) {
-    console.error("Face proctor error:", err);
+      // Handle malpractice
+      setMalpracticeCount((prev) => {
+  const newCount = prev + 1;
+  if (newCount <= 2) {
+    setShowMalpracticeWarning(true); // show warning for first two
+  } else {
+    setIsBlocked(true);
+    if (videoRef.current?.srcObject) {
+  videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
+} // block after 2nd violation
+    setShowMalpracticeWarning(false);
+    alert("⚠️ Malpractice detected — challenge access disabled."); // hide warning modal
   }
-}
+  return newCount;
+});
+if (isBlocked) return;
 
+      console.warn("Facial malpractice detected:", data.status);
+    } catch (err) {
+      console.error("Face proctor error:", err);
+    }
+  }
   // ✅ New modal & fullscreen states
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showFullscreenWarning, setShowFullscreenWarning] = useState(false);

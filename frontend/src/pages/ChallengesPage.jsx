@@ -13,9 +13,32 @@ export default function ChallengesPage() {
   const [identityVerified, setIdentityVerified] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [submittedChallenges, setSubmittedChallenges] = useState([]);
+
+  // ✅ FIX: only ONE isBlocked state
+  const [isBlocked, setIsBlocked] = useState(false);
+
+  const email = localStorage.getItem("email") || "unknown";
   const videoRef = useRef(null);
   const navigate = useNavigate();
   const userId = localStorage.getItem("userId");
+
+// -------------------------------------------------------
+// ✅ STEP 1: Check backend block status on load
+// -------------------------------------------------------
+useEffect(() => {
+  const checkBlockedStatus = async () => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/check-blocked/${email}`);
+      const data = await res.json();
+      setIsBlocked(data.isBlocked);
+    } catch (err) {
+      console.error("Block check failed:", err);
+    }
+  };
+
+  checkBlockedStatus(); // 👈 VERY IMPORTANT — EXECUTE IT
+}, [email]);
+
 
   // Fetch challenges
   useEffect(() => {
@@ -45,7 +68,7 @@ export default function ChallengesPage() {
         if (!res.ok) throw new Error("Failed to fetch submissions");
         const data = await res.json();
         setSubmittedChallenges(data.map(sub => sub.challengeId._id?.toString() || sub.challengeId.toString()));
-} catch (err) {
+      } catch (err) {
         console.error(err);
       }
     };
@@ -101,15 +124,14 @@ export default function ChallengesPage() {
   };
 
   const captureAndVerify = async () => {
-    if (!videoRef.current || videoRef.current.readyState < 2) return alert("Webcam not ready yet.");
+    if (!videoRef.current || videoRef.current.readyState < 2)
+      return alert("Webcam not ready yet.");
     
     const canvas = document.createElement("canvas");
     canvas.width = videoRef.current.videoWidth || 640;
     canvas.height = videoRef.current.videoHeight || 480;
     canvas.getContext("2d").drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-
-    const email = localStorage.getItem("email");
-    if (!email) return alert("Email not found. Please login again.");
+        if (!email) return alert("Email not found. Please login again.");
 
     try {
       setVerifying(true);
@@ -118,17 +140,17 @@ export default function ChallengesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, image: canvas.toDataURL("image/jpeg") }),
       });
+
       const data = await res.json();
       setVerifying(false);
 
       if (data.verified) {
-  setIdentityVerified(true);
-  stopWebcam();
-  setModalOpen(false);
-  setSubmittedChallenges(prev => [...prev, currentChallenge._id.toString()]); // ✅ Add to submittedChallenges
-  navigate(`/challenge/${currentChallenge._id}`);
-}
- else {
+        setIdentityVerified(true);
+        stopWebcam();
+        setModalOpen(false);
+        setSubmittedChallenges(prev => [...prev, currentChallenge._id.toString()]);
+        navigate(`/challenge/${currentChallenge._id}`);
+      } else {
         alert(`❌ Identity verification failed. Distance: ${data.distance?.toFixed(2) || "N/A"}`);
       }
     } catch (err) {
@@ -149,19 +171,22 @@ export default function ChallengesPage() {
     setModalOpen(false);
   };
 
-  if (loading) return (
-    <div className="challenges-page">
-      <NavbarStudent />
-      <p>Loading challenges...</p>
-    </div>
-  );
+  if (loading)
+    return (
+      <div className="challenges-page">
+        <NavbarStudent />
+        <p>Loading challenges...</p>
+      </div>
+    );
 
   const nextChallenge = challenges.find(
     c => getTimeLeft(c.startTime, c.timeLimit).status !== "ended"
   );
+
   const { status, diff, total } = nextChallenge
     ? getTimeLeft(nextChallenge.startTime, nextChallenge.timeLimit)
     : { status: "ended", diff: 0, total: 0 };
+
   const progress = total ? ((total - diff) / total) * 100 : 100;
 
   return (
@@ -185,28 +210,49 @@ export default function ChallengesPage() {
                     strokeDashoffset={((100 - progress) / 100) * 2 * Math.PI * 70}
                   />
                 </svg>
-                <div className="time-text-center">{status === "ended" ? "00:00" : formatMMSS(diff)}</div>
+                <div className="time-text-center">
+                  {status === "ended" ? "00:00" : formatMMSS(diff)}
+                </div>
               </div>
 
+              {/* START BUTTON WITH BLOCK CHECK */}
               <button
-  className={`start-btn ${
-    status === "upcoming" || status === "ended" || submittedChallenges.includes(nextChallenge._id.toString())
-      ? "disabled"
-      : ""
-  }`}
-  disabled={
-    status === "upcoming" || status === "ended" || submittedChallenges.includes(nextChallenge._id.toString())
-  }
-  onClick={() => handleStart(nextChallenge)}
->
-  {submittedChallenges.includes(nextChallenge._id.toString())
-    ? "Already Submitted"
-    : status === "ended"
-    ? "Challenge Ended"
-    : "Start Challenge"}
-</button>
+                className={`start-btn ${
+                  isBlocked ||
+                  status === "upcoming" ||
+                  status === "ended" ||
+                  submittedChallenges.includes(nextChallenge._id.toString())
+                    ? "disabled"
+                    : ""
+                }`}
+                disabled={
+                  isBlocked ||
+                  status === "upcoming" ||
+                  status === "ended" ||
+                  submittedChallenges.includes(nextChallenge._id.toString())
+                }
+                onClick={() => {
+                  if (isBlocked) {
+                    alert("❌ You are blocked due to malpractice.");
+                    return;
+                  }
+                  handleStart(nextChallenge);
+                }}
+              >
+                {isBlocked
+                  ? "⚠️ Malpractice Detected"
+                  : submittedChallenges.includes(nextChallenge._id.toString())
+                  ? "Already Submitted"
+                  : status === "ended"
+                  ? "Challenge Ended"
+                  : "Start Challenge"}
+              </button>
 
-
+              {isBlocked && (
+                <p style={{ color: "red", fontWeight: "bold", marginTop: "10px" }}>
+                  ⚠️ You have been blocked due to repeated malpractice.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -222,45 +268,54 @@ export default function ChallengesPage() {
                   <ul>
                     <li>Complete your Profile before you begin compulsarily.</li>
                     <li>No malpractice. Cheating leads to disqualification.</li>
-                    <li>Complete within the given time frame. Keep your eyes on the countdown.</li>
+                    <li>Complete within the given time frame.</li>
                     <li>Follow challenge instructions.</li>
-                    <li>If any issues, contact us on support@algoodyssey.com</li><hr></hr>
-                    <li>Hint: Pay attention to the data type of the input and the output mentioned in the question.  </li>
-                    <li>All the best, candidate.</li>
+                    <li>If any issues, contact us.</li>
+                    <hr />
+                    <li>Hint: Pay attention to data types for inputs/outputs.</li>
+                    <li>All the best!</li>
                   </ul>
                 </div>
                 <div>
-                  <input type="checkbox" id="agreeTC" checked={agreeTC} onChange={(e) => setAgreeTC(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    id="agreeTC"
+                    checked={agreeTC}
+                    onChange={(e) => setAgreeTC(e.target.checked)}
+                  />
                   <label htmlFor="agreeTC"> I agree to all Terms & Conditions</label>
                 </div>
-                <button className="btn" onClick={handleNext} disabled={!agreeTC}>Next</button>
+                <button className="btn" onClick={handleNext} disabled={!agreeTC}>
+                  Next
+                </button>
               </>
             )}
 
             {step === 2 && (
-  <div className="identity-verification-step">
-    <div className="webcam-container">
-      <video ref={videoRef} autoPlay width="320" height="240" />
-    </div>
+              <div className="identity-verification-step">
+                <div className="webcam-container">
+                  <video ref={videoRef} autoPlay width="320" height="240" />
+                </div>
 
-    <div className="verification-feedback">
-      {identityVerified ? (
-        <div className="verified">
-          <div className="tick-animation">✔️</div>
-          <p>All the best, {localStorage.getItem("name") || "Student"}!</p>
-        </div>
-      ) : (
-        <>
-          <button className="btn" onClick={handleNext} disabled={verifying}>
-            {verifying ? "Verifying..." : "Capture & Verify"}
-          </button>
-          {verifying && <p>🔄 Checking identity, please wait...</p>}
-        </>
-      )}
-    </div>
-  </div>
-)}
-
+                <div className="verification-feedback">
+                  {identityVerified ? (
+                    <div className="verified">
+                      <div className="tick-animation">✔️</div>
+                      <p>
+                        All the best, {localStorage.getItem("name") || "Student"}!
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <button className="btn" onClick={handleNext} disabled={verifying}>
+                        {verifying ? "Verifying..." : "Capture & Verify"}
+                      </button>
+                      {verifying && <p>🔄 Checking identity, please wait...</p>}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
 
             <button className="modal-close" onClick={handleCloseModal}>x</button>
           </div>

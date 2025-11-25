@@ -7,6 +7,7 @@ import CodeEditor from "./pages/CodeEditor";
 import SubmissionsPage from "./pages/SubmissionsPage";
 import ProfilePage from "./pages/ProfilePage";
 import AdminDashboard from "./pages/AdminDashboard";
+import BlockedUsersPage from "./pages/admin/BlockedUsersPage";
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
         <Route path="/submissions" element={<SubmissionsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/admin/blocked-users" element={<BlockedUsersPage />} />
       </Routes>
     </BrowserRouter>
   );
