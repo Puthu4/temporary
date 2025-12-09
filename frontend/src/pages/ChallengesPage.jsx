@@ -155,12 +155,12 @@ useEffect(() => {
         setSubmittedChallenges(prev => [...prev, currentChallenge._id.toString()]);
         navigate(`/challenge/${currentChallenge._id}`);
       } else {
+        alert(data.message || "Verification failed. Please try again.");
         alert(`❌ Identity verification failed. Distance: ${data.distance?.toFixed(2) || "N/A"}`);
       }
     } catch (err) {
-      setVerifying(false);
-      console.error(err);
-      alert("⚠️ Server error during identity verification.");
+        console.error("🔴 Identity verification crash:", err.stack || err);
+        return res.status(500).json({ verified: false, message: err.message || "Unknown error" });
     }
   };
 

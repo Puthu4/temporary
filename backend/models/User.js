@@ -12,7 +12,10 @@ const userSchema = new mongoose.Schema(
     },
     role: { type: String, enum: ["student", "admin"], required: true },
     image: { type: String },
-    faceDescriptor: { type: [Number], default: [] },
+    faceDescriptor: {
+    type: [Number],
+    default: [],
+    },
   isBlocked: {
   type: Boolean,
   default: false,

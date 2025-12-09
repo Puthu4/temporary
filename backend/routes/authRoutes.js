@@ -19,7 +19,15 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname)),
 });
-const upload = multer({ storage });
+
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ["image/jpeg", "image/png", "image/jpg"];
+    if (allowedTypes.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Only JPEG and PNG images are allowed."));
+  },
+});
 
 // Load face-api models on server start
 await faceapi.nets.tinyFaceDetector.loadFromDisk("./face-models-tiny");
@@ -83,7 +91,6 @@ router.get("/profile/:email", async (req, res) => {
 
 /**
  * PUT /api/profile/:email
- * Updates profile info, password, and uploads face image.
  */
 router.put("/profile/:email", upload.single("image"), async (req, res) => {
   try {
@@ -94,34 +101,28 @@ router.put("/profile/:email", upload.single("image"), async (req, res) => {
     if (fullName) user.fullName = fullName;
     if (seatNumber) user.seatNumber = seatNumber;
 
-    // Password update
-    // Password update: only if user is actually trying to change it
-if (newPassword || confirmPassword) {
-  if (!oldPassword) return res.status(400).json({ message: "Old password is required to change password" });
-  if (oldPassword !== user.password) return res.status(400).json({ message: "Old password is incorrect" });
-  if (newPassword !== confirmPassword) return res.status(400).json({ message: "Passwords do not match" });
-  user.password = newPassword;
-}
+    if (newPassword || confirmPassword) {
+      if (!oldPassword) return res.status(400).json({ message: "Old password is required to change password" });
+      if (oldPassword !== user.password) return res.status(400).json({ message: "Old password is incorrect" });
+      if (newPassword !== confirmPassword) return res.status(400).json({ message: "Passwords do not match" });
+      user.password = newPassword;
+    }
 
-
-    // Profile image & face descriptor
     if (req.file) {
       const imagePath = req.file.path;
       user.image = `/uploads/${req.file.filename}`;
-
       const img = await canvas.loadImage(imagePath);
+
       const detection = await faceapi
-  .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 })) // smaller input
-  .withFaceLandmarks(true)
-  .withFaceDescriptor();
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+        .withFaceLandmarks(true)
+        .withFaceDescriptor();
 
       if (!detection) {
-        console.log("No face detected in uploaded image");
-        return res.status(400).json({ message: "No face detected in uploaded image" });
+        return res.status(400).json({ verified: false, message: "No face detected in uploaded image." });
       }
 
       user.faceDescriptor = Array.from(detection.descriptor);
-      console.log("Face descriptor saved:", user.faceDescriptor.length);
     }
 
     await user.save({ validateModifiedOnly: true });
@@ -134,40 +135,48 @@ if (newPassword || confirmPassword) {
 
 /**
  * POST /api/verify-identity/:challengeId
- * Verifies a user using webcam image
  */
 router.post("/verify-identity/:challengeId", async (req, res) => {
   try {
     const { email, image } = req.body;
-    if (!email || !image) return res.status(400).json({ verified: false, message: "Missing email or image" });
+    if (!email || !image)
+      return res.status(400).json({ verified: false, message: "Missing email or image" });
 
     const user = await User.findOne({ email });
-    if (!user?.faceDescriptor?.length)
-      return res.status(404).json({ verified: false, message: "No reference image" });
+    console.log("🟢 User loaded:", user?.email);
+    console.log("🟢 Face descriptor length:", user?.faceDescriptor?.length);
 
-    // Convert base64 to buffer
+    if (!user?.faceDescriptor || !Array.isArray(user.faceDescriptor) || user.faceDescriptor.length !== 128)
+      return res.status(404).json({ verified: false, message: "Invalid or missing face descriptor in profile" });
+
     const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
     const buffer = Buffer.from(base64Data, "base64");
-
     const img = await canvas.loadImage(buffer);
+
     const detection = await faceapi
-  .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }))
-  .withFaceLandmarks(true)
-  .withFaceDescriptor();
+      .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+      .withFaceLandmarks(true)
+      .withFaceDescriptor();
 
-if (!detection) return res.status(400).json({ verified: false, message: "No face detected" });
+    if (!detection) {
+      return res.status(400).json({ verified: false, message: "No face detected." });
+    }
 
-const queryDescriptor = detection.descriptor;
-const referenceDescriptor = new Float32Array(user.faceDescriptor);
+    const queryDescriptor = detection.descriptor;
+    const referenceDescriptor = new Float32Array(user.faceDescriptor);
+    const distance = faceapi.euclideanDistance(queryDescriptor, referenceDescriptor);
+    console.log("🟢 Distance between faces:", distance);
 
-const distance = faceapi.euclideanDistance(queryDescriptor, referenceDescriptor);
-const verified = distance < 0.65;
+    const verified = distance < 0.5;
 
-res.json({ verified, distance, message: "Face verification completed" });
-} catch (err) {
-    console.error("Identity verification error:", err);
-    res.status(500).json({ verified: false, message: "Server error during identity verification" });
+    return res.json({
+      verified,
+      distance,
+      message: verified ? "Face verified" : "Face mismatch. Try again.",
+    });
+  } catch (err) {
+    console.error("🔴 Identity verification crash:", err.stack || err);
+    return res.status(500).json({ verified: false, message: err.message || "Unknown error" });
   }
 });
-
 export default router;
